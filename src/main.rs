@@ -30,7 +30,7 @@ fn encrypt_file(file_path: &Path, password: &[u8]) -> io::Result<()> {
     let _ = Argon2::default().hash_password_into(password, &salt, &mut okm); 
     let key = Key::<Aes128Gcm>::from_slice(&okm);
 
-    let cipher = Aes128Gcm::new(&key);
+    let cipher = Aes128Gcm::new(key);
     let noncega = Aes128Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher.encrypt(&noncega, buffer.as_ref()).expect("encryption failed");
     okm.zeroize();
@@ -58,7 +58,7 @@ fn decrypt_file(file_path: &Path, password: &[u8]) -> io::Result<()> {
     let _ = Argon2::default().hash_password_into(password, &salt, &mut okm);
     let key = Key::<Aes128Gcm>::from_slice(&okm);
 
-    let cipher = Aes128Gcm::new(&key);
+    let cipher = Aes128Gcm::new(key);
     let noncega = GenericArray::from_slice(&nonce);
     let plaintext = cipher.decrypt(noncega, ciphertext.as_ref()).expect("decryption failed");
     okm.zeroize();
@@ -119,10 +119,9 @@ fn extract_archive(archive_path: &Path, output_dir: &Path) -> io::Result<()> {
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    let cli_path = match args.get(1) {
-        Some(path) => Path::new(path),
-        None => Path::new("."),
-    };
+    let arg = args.get(1).expect("No path provided").as_str();
+
+    let cli_path = Path::new(arg);
 
     if cli_path.is_dir() {
         println!("password pls");
