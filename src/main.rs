@@ -1,17 +1,22 @@
 use std::env;
 use std::fs::File;
 use std::io::{self, Read, Write, Cursor};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tar::{Archive, Builder};
 use walkdir::WalkDir;
-use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, generic_array::GenericArray},
-    Aes128Gcm, Key};
+use aes_gcm::{ aead::{Aead, AeadCore, KeyInit, generic_array::GenericArray}, Aes128Gcm};
 use argon2::Argon2;
 use rpassword::read_password;
 use rand::{rngs::OsRng};
 use zeroize::Zeroize;
 
+use aead::consts::U16;
+
+fn kdf(password: &[u8], salt: &[u8; 16]) -> GenericArray<u8, U16> {
+    let mut okm = [0u8; 16];
+    Argon2::default().hash_password_into(password, salt, &mut okm).unwrap();
+    GenericArray::clone_from_slice(&okm)
+}
 
 fn seal(dir_path: &Path, password: &[u8]) -> io::Result<()> {
 
@@ -30,20 +35,15 @@ fn seal(dir_path: &Path, password: &[u8]) -> io::Result<()> {
     }
 
     let salt = rand::random::<[u8; 16]>(); 
-    let mut okm = [0u8; 16];
-    let _ = Argon2::default().hash_password_into(password, &salt, &mut okm); 
-    let key = Key::<Aes128Gcm>::from_slice(&okm);
+    let mut key = kdf(password, &salt);
+    let cipher = Aes128Gcm::new(&key);
+    let nonce = Aes128Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher.encrypt(&nonce, tardata.as_ref()).expect("encryption failure");
+    key.zeroize();
 
-    let cipher = Aes128Gcm::new(key);
-    let noncega = Aes128Gcm::generate_nonce(&mut OsRng);
-    let ciphertext = cipher.encrypt(&noncega, tardata.as_ref()).expect("encryption failure");
-    okm.zeroize();
-
-    let mut asd_path = PathBuf::from(dir_path);
-    asd_path.set_extension("asd");
-
-    let mut encrypted_file = File::create(format!("{}", asd_path.display()))?;
-    encrypted_file.write_all(&noncega)?;
+    let asd_path = dir_path.with_extension("asd");
+    let mut encrypted_file = File::create(&asd_path)?;
+    encrypted_file.write_all(&nonce)?;
     encrypted_file.write_all(&salt)?;
     encrypted_file.write_all(&ciphertext)?;
 
@@ -60,14 +60,12 @@ fn unseal(file_path: &Path, password: &[u8]) -> io::Result<()> {
     let mut ciphertext = Vec::new();
     file.read_to_end(&mut ciphertext)?;
 
-    let mut okm = [0u8; 16];
-    let _ = Argon2::default().hash_password_into(password, &salt, &mut okm);
-    let key = Key::<Aes128Gcm>::from_slice(&okm);
+    let mut key = kdf(password, &salt);
 
-    let cipher = Aes128Gcm::new(key);
+    let cipher = Aes128Gcm::new(&key);
     let noncega = GenericArray::from_slice(&nonce);
     let plaintext = cipher.decrypt(noncega, ciphertext.as_ref()).expect("decryption failure");
-    okm.zeroize();
+    key.zeroize();
 
     let cursor = Cursor::new(plaintext);
     let mut archive = Archive::new(cursor);
@@ -108,4 +106,3 @@ fn main() -> io::Result<()> {
 
     Ok(())
 }
-
