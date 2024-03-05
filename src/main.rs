@@ -9,7 +9,6 @@ use argon2::Argon2;
 use rpassword::read_password;
 use rand::{rngs::OsRng};
 use zeroize::Zeroize;
-
 use aead::consts::U16;
 
 fn kdf(password: &[u8], salt: &[u8; 16]) -> GenericArray<u8, U16> {
